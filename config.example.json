@@ -1,0 +1,67 @@
+{
+  "poll_interval_sec": 5,
+  "gitlab": { "url": "https://gitlab.com", "token": "" },
+  "github": { "api_url": "https://api.github.com", "token": "" },
+  "notify": "auto",
+  "projects": [
+    {
+      "provider": "gitlab",
+      "id": 123456,
+      "name": "auth-service",
+      "short": "auth",
+      "local_path": "~/workspace/auth-service",
+      "branch": "auto",
+      "flow": {
+        "chain": ["feature/*", "develop", "main"],
+        "lanes": [
+          {"branch": "hotfix/*", "into": "main", "back_merge": "develop"},
+          {"branch": "release/*", "into": "main", "back_merge": "develop"}
+        ],
+        "reviewers": [],
+        "max_fix_rounds": 3,
+        "merge": {
+          "feature→develop": { "method": "squash", "delete_branch": true },
+          "develop→main": { "method": "merge", "delete_branch": false }
+        }
+      },
+      "deploy": {
+        "after_branch": "main",
+        "environments": [
+          {
+            "name": "staging",
+            "adapter": "gitlab",
+            "trigger": "auto",
+            "verify": {
+              "url": "https://staging.example.com/health",
+              "expect_status": 200,
+              "duration_sec": 300,
+              "interval_sec": 30,
+              "fail_after": 2
+            },
+            "rollback": "auto"
+          },
+          {
+            "name": "production",
+            "adapter": "gitlab",
+            "production": true,
+            "trigger": "ask",
+            "rollback": "ask"
+          }
+        ]
+      }
+    },
+    {
+      "provider": "github",
+      "repo": "octo-org/payment-api",
+      "name": "payment-api",
+      "short": "pay",
+      "local_path": "~/workspace/payment-api",
+      "branch": "auto",
+      "flow": {
+        "chain": ["feature/*", "main"],
+        "reviewers": [],
+        "max_fix_rounds": 3
+      }
+    }
+  ]
+}

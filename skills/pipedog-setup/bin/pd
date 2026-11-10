@@ -1,0 +1,33 @@
+#!/bin/sh
+# pipedog launcher: resolve this script's symlinks (macOS readlink has no -f),
+# then exec scripts/monitor.py with python3 (>= 3.8).
+set -eu
+
+SELF=$0
+while [ -L "$SELF" ]; do
+  LINK_DIR=$(cd -P "$(dirname "$SELF")" && pwd)
+  TARGET=$(readlink "$SELF")
+  case "$TARGET" in
+    /*) SELF=$TARGET ;;
+    *) SELF=$LINK_DIR/$TARGET ;;
+  esac
+done
+
+ROOT=$(cd -P "$(dirname "$SELF")/.." && pwd)
+MONITOR=$ROOT/scripts/monitor.py
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "pd: 'python3' not found" >&2
+  exit 127
+fi
+
+python3 -c '
+import sys
+v = sys.version_info
+if (v.major, v.minor) < (3, 8):
+    found = "%d.%d.%d" % (v.major, v.minor, v.micro)
+    sys.stderr.write("pd: need Python >= 3.8 (found %s)\n" % found)
+    sys.exit(127)
+' || exit $?
+
+exec python3 "$MONITOR" "$@"
