@@ -596,7 +596,7 @@ def step(
         new_ref.notified.append(merge_ask_key)
         parts: list[str] = []
         if rev == "no_rule":
-            parts.append("no approval rule (allowed)")
+            parts.append("no required review (allowed)")
         elif obs.pr.approvals_given is not None and obs.pr.approvals_required is not None:
             parts.append(f"approved {obs.pr.approvals_given}/{obs.pr.approvals_required}")
         else:

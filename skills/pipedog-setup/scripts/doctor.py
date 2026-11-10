@@ -182,6 +182,14 @@ def run(
 
             token_ok = False
             resp_hdrs: dict[str, str] = {}
+            if not token:
+                hint = (
+                    "no token: export PIPEDOG_GITHUB_TOKEN=... (or gh auth login)"
+                    if prov == "github"
+                    else "no token: export PIPEDOG_GITLAB_TOKEN=... (api scope)"
+                )
+                checks.append(Check(CheckName(f"{p_name}:token", "token"), "fail", hint))
+                continue
             try:
                 user_data, resp_hdrs = http.get_json_with_headers(user_url, headers)
                 login = user_data.get("login") or user_data.get("username") or "ok"

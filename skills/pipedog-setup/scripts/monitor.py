@@ -409,6 +409,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         description="pipedog - terminal CI/CD pipeline monitor (GitLab CI / GitHub Actions)",
         epilog=(
             "subcommands:\n"
+            "  init            generate a project entry from current git repo\n"
             "  doctor          check health of pipedog, config, tokens, and rate limits\n"
             "  status          query pipeline status from active snapshot\n"
             "  wait            block until snapshot changes or event arrives\n"
@@ -465,7 +466,10 @@ def missing_config_message(path: Path) -> str:
     return (
         f"pipedog: config not found: {path}\n"
         f"\n"
-        f"Create it from the example and edit your projects:\n"
+        f"Quickest: run this inside your repo (detects GitHub/GitLab and the branch flow):\n"
+        f"  pd init\n"
+        f"\n"
+        f"Or create it from the example and edit your projects:\n"
         f'  mkdir -p "{path.parent}"\n'
         f'  cp "{example}" "{path}"\n'
         f"\n"

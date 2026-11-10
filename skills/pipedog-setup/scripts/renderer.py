@@ -97,6 +97,19 @@ BANNER: str = r"""        __              _                _
   \_) \_)        |_|      |_|                   |___/"""
 
 
+_YELLOW_KIND_TEXT: dict[str, str] = {
+    "no_approval_rule": "no required review on {target} · A = always allow",
+    "allow_failure": "failed (allowed to fail)",
+    "neutral": "finished neutral",
+    "action_required": "needs action on the CI page",
+}
+
+
+def _yellow_kind_text(kind: str, target: str) -> str:
+    text = _YELLOW_KIND_TEXT.get(kind)
+    return text.format(target=target or "target") if text else kind
+
+
 def _format_decision_summary(d: flowmodel.Decision) -> str:
     parts: list[str] = []
     for r in d.reasons:
@@ -106,10 +119,11 @@ def _format_decision_summary(d: flowmodel.Decision) -> str:
             parts.append(str(r["summary"]))
         elif r.get("kind"):
             job = r.get("job")
+            text = _yellow_kind_text(str(r["kind"]), d.target or "")
             if job and job != "*":
-                parts.append(f"{job} ({r['kind']})")
+                parts.append(f"{job} {text}")
             else:
-                parts.append(str(r["kind"]))
+                parts.append(text)
     if parts:
         summary = ", ".join(parts)
     elif d.kind == "merge":

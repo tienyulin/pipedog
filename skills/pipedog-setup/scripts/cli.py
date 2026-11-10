@@ -1,4 +1,4 @@
-"""CLI subcommands for pipedog (status, wait, ack, decide, decisions, rules, comments, reply, tick, install-tick, uninstall-tick)."""
+"""CLI subcommands for pipedog (status, wait, ack, decide, decisions, rules, comments, reply, tick, install-tick, uninstall-tick, envs, doctor, init)."""
 
 from __future__ import annotations
 
@@ -40,6 +40,7 @@ SUBCOMMANDS: set[str] = {
     "uninstall-tick",
     "envs",
     "doctor",
+    "init",
 }
 
 VALID_ANSWERS: dict[str, set[str]] = {
@@ -61,6 +62,7 @@ def _default_launchctl(cmd: list[str]) -> int:
 
 
 launchctl_runner: Callable[[list[str]], Any] = _default_launchctl
+git_runner: Callable[..., Any] = subprocess.run
 
 
 def _plist_path() -> Path:
@@ -662,6 +664,9 @@ def cmd_decisions(args: list[str]) -> int:
             else:
                 for d in decisions:
                     print(f"[{d.id}] {d.kind} {d.project} {d.source}→{d.target} ({d.head_sha[:7]})")
+                    why = renderer._format_decision_summary(d)
+                    if why:
+                        print(f"    {why}")
         return 0
 
     is_json = "--json" in args
@@ -952,10 +957,18 @@ def cmd_doctor(args: list[str]) -> int:
     return 0
 
 
+def cmd_init(args: list[str], *, run: Callable[..., Any] | None = None) -> int:
+    import init_cmd
+
+    runner = run if run is not None else git_runner
+    return init_cmd.cmd_init(args, run=runner)
+
+
 def main(
     argv: list[str] | None = None,
     *,
     launchctl: Callable[[list[str]], Any] | None = None,
+    run: Callable[..., Any] | None = None,
 ) -> int:
     if argv is None:
         argv = sys.argv[1:]
@@ -993,6 +1006,9 @@ def main(
         return cmd_envs(args)
     if cmd == "doctor":
         return cmd_doctor(args)
+    if cmd == "init":
+        runner = run if run is not None else git_runner
+        return cmd_init(args, run=runner)
     return 2
 
 

@@ -23,9 +23,39 @@ If `pd` is not found in `PATH`:
    ln -s <canonical copy>/skills/pipedog-setup/bin/pd ~/.local/bin/pd
    ```
 
-## 2. Configure `~/.config/pipedog/config.json`
+## 2. Initialize Project Configuration (`pd init`)
 
-Create `~/.config/pipedog/config.json`:
+Inside your local git repository, generate a working configuration in one step:
+
+```bash
+pd init
+```
+
+Options:
+- `--path DIR`: Target repository directory (defaults to current directory).
+- `--flow auto|gitflow|github|none`: Branch flow strategy (default `auto`: detects `origin/develop` for Git Flow `["feature/*", "develop", <default>]`, otherwise GitHub Flow `["feature/*", <default>]`).
+- `--name NAME`: Project name override (defaults to repository folder name).
+- `--config PATH`: Target configuration path (defaults to `--config` > `PIPEDOG_CONFIG` > `~/.config/pipedog/config.json`).
+- `--dry-run`: Output generated JSON project entry without writing to file.
+- `--force`: Replace entry in place if this project is already configured.
+
+### Set API Token
+
+Provide API tokens via environment variables (or `gh auth login` for GitHub):
+- **GitHub**: `export PIPEDOG_GITHUB_TOKEN=...`, `export GITHUB_TOKEN=...`, or `gh auth login` (`repo` scope required)
+- **GitLab**: `export PIPEDOG_GITLAB_TOKEN=...` or `export GITLAB_TOKEN=...` (`api` scope required for flow automation)
+
+### Verify Setup
+
+Run `pd doctor` to check configuration, credentials, permissions, and API rate limits:
+
+```bash
+pd doctor
+```
+
+## 3. Manual Configuration & Customization (Advanced)
+
+For custom setups, multiple projects, or advanced flow options, create or edit `~/.config/pipedog/config.json`:
 
 ```json
 {
@@ -120,7 +150,7 @@ pd needs nothing besides itself: the TUI (`pd`), `pd status`, `pd wait` and `pd 
 
 Do NOT install a system scheduler during setup. Only if the user explicitly asks for hands-off background progress, offer `pd install-tick` (macOS launchd; remove with `pd uninstall-tick`) or a crontab line on Linux. If `pd doctor` warns `engine idle` while a deploy is in progress, running `pd status` once is enough.
 
-## 3. Continuous Deployment (`deploy`) Configuration (Optional)
+## 4. Continuous Deployment (`deploy`) Configuration (Optional)
 
 Each project can optionally configure a `deploy` block to automatically track, trigger, verify, and rollback deployments across environments:
 
@@ -236,7 +266,7 @@ When using `adapter: "command"`, you can integrate any deployment tool using she
    }
    ```
 
-## 4. Start `pd` or Try `--mock`
+## 5. Start `pd` or Try `--mock`
 
 - Start the live monitor in a dedicated terminal pane:
   ```bash
@@ -250,7 +280,7 @@ When using `adapter: "command"`, you can integrate any deployment tool using she
   ```
   `pd --mock --gallery` prints a static panel containing every pipeline, flow, review, and environment scenario deterministically (useful for UI testing and visual inspection; add `--ascii` or `PIPEDOG_ASCII=1` for ASCII mode).
 
-## 5. Background Tick Schedule (Advance Flow When Agent Is Idle)
+## 6. Background Tick Schedule (Advance Flow When Agent Is Idle)
 
 Normally, `pd wait` and the interactive TUI `pd` advance flow and deployments automatically while running. `pd status` also advances first whenever a deployment is in progress or the snapshot is stale, so no extra scheduler is needed. Only configure a background scheduler if you explicitly require hands-off progress without any active `pd` or agent session:
 
@@ -275,7 +305,7 @@ Normally, `pd wait` and the interactive TUI `pd` advance flow and deployments au
   - Scheduled runs output to `<state_dir>/tick.log` (e.g. `~/.local/state/pipedog/tick.log`).
   - During `pd tick`, if `tick.log` exceeds 1 MiB, it is automatically rotated to keep the last 256 KiB atomically.
 
-## 6. Troubleshooting: `pd doctor`
+## 7. Troubleshooting: `pd doctor`
 
 When experiencing issues with configuration, authentication, tokens, permissions, rate limits, or engine status, troubleshooting begins with running `pd doctor` first:
 

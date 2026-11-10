@@ -113,13 +113,31 @@ To prevent accidental merges or production outages, actions use tiered confirmat
 
 ## Configuration & Flow Automation
 
-### 1. Create Configuration File
+### Quick Start: `pd init`
+
+Inside your git repository, generate a working configuration in one step without manually writing JSON or exposing tokens:
+
+```bash
+pd init
+```
+
+Options:
+- `--path DIR`: Target repository directory (defaults to current directory).
+- `--flow auto|gitflow|github|none`: Branch flow strategy (default `auto`: detects `origin/develop` for Git Flow `["feature/*", "develop", <default>]`, otherwise GitHub Flow `["feature/*", <default>]`).
+- `--name NAME`: Project name override (defaults to repository folder name).
+- `--config PATH`: Target configuration path (`--config` > `PIPEDOG_CONFIG` > `~/.config/pipedog/config.json`).
+- `--dry-run`: Output generated JSON project entry without writing to file.
+- `--force`: Replace entry in place if this project is already configured.
+
+After running `pd init`, set your personal access token (`export PIPEDOG_GITHUB_TOKEN=...` or `gh auth login`, or `export PIPEDOG_GITLAB_TOKEN=...`), then run `pd doctor` to verify setup.
+
+### Manual Configuration
 
 Default configuration file location is `~/.config/pipedog/config.json` (override with `--config PATH` or `PIPEDOG_CONFIG` environment variable):
 
 ```bash
 mkdir -p ~/.config/pipedog
-cp config.example.json ~/.config/pipedog/config.json
+cp <canonical copy>/skills/pipedog-setup/config.example.json ~/.config/pipedog/config.json
 ```
 
 Example `config.json` supporting Git Flow and GitHub Flow:
@@ -193,7 +211,7 @@ Example `config.json` supporting Git Flow and GitHub Flow:
 - `flow.chain`: Branch promotion progression (at least 2 tiers). First tier is a feature branch pattern (e.g. `"feature/*"`), followed by target branches (`["feature/*", "develop", "main"]` for Git Flow, or `["feature/*", "main"]` for GitHub Flow). Projects without `flow` remain in monitor-only mode.
 - `flow.lanes`: Extra entry branches (e.g. `hotfix/*`, `release/*`) that merge directly into a target chain branch (e.g. `main`) with optional automated back-merge PRs (e.g. into `develop`).
 - `flow.max_fix_rounds`: Maximum consecutive automated fix attempts on a branch (default `3`).
-- `flow.merge`: Merge methods per stage (`method`: `"squash"`, `"merge"`, or `"rebase"`; `"delete_branch"`: `true` or `false`).
+- `flow.merge`: Merge methods per stage (`method`: `"squash"` or `"merge"`; `"delete_branch"`: `true` or `false`).
 - `deploy`: Optional continuous deployment block. `after_branch` specifies the branch that triggers deployment progression once green.
   - `environments`: List of target environments. `adapter` can be `"gitlab"`, `"github"`, or `"command"`.
   - `trigger`: `"auto"` (deploy immediately upon trigger) or `"ask"` (generate a pending decision).
@@ -318,6 +336,7 @@ pd [--mock] [--config PATH] [--once] [--interval SEC] [--no-notify] [--gallery] 
 
 | Command | Description | Exit Code |
 |---|---|---|
+| `pd init [--path DIR] [--flow auto\|gitflow\|github\|none] [--name NAME] [--config PATH] [--dry-run] [--force]` | Generate a project entry in config from current git repository | `0` written; `2` error; `3` duplicate |
 | `pd status [--json] [--no-tick]` | Display current pipeline status view (or `--json` for `active_status.json`) | `0`; snapshot missing `2` |
 | `pd envs [--json]` | List deployment environment states (commit SHA, status, verification, timestamp) | `0` |
 | `pd wait [--timeout SEC]` | Block waiting for events requiring agent action (advances flow automatically), outputs single JSON event | `0` on event; `4` timeout; `5` other waiter active; `2` config error |

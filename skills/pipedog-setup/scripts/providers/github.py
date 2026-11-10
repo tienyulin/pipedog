@@ -112,6 +112,8 @@ class Client:
             msg = e.message if isinstance(e, http.HttpError) else f"{type(e).__name__}: {e}"
             if self._token:
                 msg = msg.replace(self._token, "***")
+            if isinstance(e, http.HttpError) and e.status == 404:
+                msg += " (repo not found, or the token has no access)" if self._token else " (no token set: private repos need one, run `pd doctor`)"
             pipe.fetch_error = msg
             pipe.status = None
             pipe.jobs = []

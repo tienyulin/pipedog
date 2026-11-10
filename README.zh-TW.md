@@ -113,13 +113,31 @@ pd --mock
 
 ## 設定與 Flow Automation
 
-### 1. 建立設定檔
+### 快速開始：`pd init`
+
+在專案 git 倉庫目錄下，一行指令即可自動產生可用設定，且絕不在設定檔中寫入 Token：
+
+```bash
+pd init
+```
+
+選項：
+- `--path DIR`：目標 git 倉庫目錄（預設為當前目錄）。
+- `--flow auto|gitflow|github|none`：分支流程策略（預設 `auto`：偵測到 `origin/develop` 時使用 Git Flow `["feature/*", "develop", <default>]`，否則使用 GitHub Flow `["feature/*", <default>]`）。
+- `--name NAME`：專案名稱覆寫（預設為倉庫目錄名稱）。
+- `--config PATH`：目標設定檔路徑（`--config` > `PIPEDOG_CONFIG` > `~/.config/pipedog/config.json`）。
+- `--dry-run`：印出產生的專案 JSON 項目，不寫入檔案。
+- `--force`：若專案已設定過，強制以新設定替換。
+
+執行 `pd init` 後，設定環境變數 Token（`export PIPEDOG_GITHUB_TOKEN=...` 或 `gh auth login`；GitLab 則為 `export PIPEDOG_GITLAB_TOKEN=...`），接著執行 `pd doctor` 驗證設定即可。
+
+### 手動建立設定檔
 
 預設設定檔路徑為 `~/.config/pipedog/config.json`（可用 `--config PATH` 或環境變數 `PIPEDOG_CONFIG` 覆寫）：
 
 ```bash
 mkdir -p ~/.config/pipedog
-cp config.example.json ~/.config/pipedog/config.json
+cp <canonical copy>/skills/pipedog-setup/config.example.json ~/.config/pipedog/config.json
 ```
 
 支援 Git Flow 與 GitHub Flow 的 `config.json` 範例：
@@ -193,7 +211,7 @@ cp config.example.json ~/.config/pipedog/config.json
 - `flow.chain`：分支推進鏈（至少 2 層）。第一層為 feature 分支 glob（如 `"feature/*"`），後續為目標分支（Git Flow `["feature/*", "develop", "main"]` 或 GitHub Flow `["feature/*", "main"]`）。未設定 `flow` 的專案維持純監控模式。
 - `flow.lanes`：額外 entry branches（如 `hotfix/*`、`release/*`），直接 merge 至目標 chain branch（如 `main`），並支援自動開啟 back-merge PR（如回合至 `develop`）。
 - `flow.max_fix_rounds`：同一分支連續自動修復次數上限（預設 `3`）。
-- `flow.merge`：各階段 merge 方式（`method`: `"squash"`、`"merge"` 或 `"rebase"`；`delete_branch`: `true` 或 `false`）。
+- `flow.merge`：各階段 merge 方式（`method`: `"squash"` 或 `"merge"`；`delete_branch`: `true` 或 `false`）。
 - `deploy`：可選的持續部署設定區塊。`after_branch` 指定綠燈後觸發部署的分支。
   - `environments`：目標部署環境清單。`adapter` 可選 `"gitlab"`、`"github"` 或 `"command"`。
   - `trigger`：`"auto"`（綠燈自動觸發部署）或 `"ask"`（產生待決定項目等待確認）。
@@ -318,6 +336,7 @@ pd [--mock] [--config PATH] [--once] [--interval SEC] [--no-notify] [--gallery] 
 
 | 指令 | 說明 | Exit Code |
 |---|---|---|
+| `pd init [--path DIR] [--flow auto\|gitflow\|github\|none] [--name NAME] [--config PATH] [--dry-run] [--force]` | 從目前 git 倉庫產生專案設定並寫入 config.json | `0` 成功寫入；`2` 錯誤；`3` 重複設定 |
 | `pd status [--json] [--no-tick]` | 顯示目前狀態畫面（或 `--json` 印出 `active_status.json`） | `0`；無 snapshot `2` |
 | `pd envs [--json]` | 列出各環境部署狀態（版本 SHA、狀態、驗證結果、部署時間） | `0` |
 | `pd wait [--timeout SEC]` | 阻塞等待需要 agent 處理的事件（自動推進 flow），印出單筆事件 JSON | `0` 成功取得事件；`4` timeout；`5` 已有其他 waiter；`2` 設定錯誤 |
