@@ -36,12 +36,20 @@ def _format_error_detail(error: model.ErrorInfo | None) -> str:
 
     summary = error.error_summary.strip()
     if loc and summary:
-        return f"{loc} {summary}"
-    if loc:
-        return loc
-    if summary:
-        return summary
-    return "(fetching log…)"
+        base = f"{loc} {summary}"
+    elif loc:
+        base = loc
+    elif summary:
+        base = summary
+    else:
+        base = "(fetching log…)"
+
+    if getattr(error, "flaky", False):
+        base += " · flaky?"
+    elif getattr(error, "seen", 0) >= 1:
+        base += f" · seen {error.seen}× in 7d"
+
+    return base
 
 
 class ChainView:

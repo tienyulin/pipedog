@@ -30,6 +30,8 @@ class ErrorInfo:
     file: str | None = None           # repo-relative path (CI build-dir prefix stripped)
     line: int | None = None
     log_tail: str = ""                # last 30 clean lines, "\n"-joined
+    flaky: bool = False
+    seen: int = 0
 
 
 @dataclass

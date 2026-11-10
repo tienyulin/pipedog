@@ -65,6 +65,8 @@ def _failed_entry(p: model.Pipeline, leaf: model.Job, parent: str | None) -> dic
         "line": err.line if err else None,
         "error_summary": err.error_summary if err else None,
         "log_tail": err.log_tail if err else "",
+        "flaky": err.flaky if err else False,
+        "seen_7d": err.seen if err else 0,
     }
 
 

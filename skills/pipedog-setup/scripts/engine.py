@@ -38,9 +38,24 @@ from poller_cd import CdPollerMixin
 _active_holder: Engine | None = None
 
 
+def _dict_to_error_info(d: dict[str, Any]) -> model.ErrorInfo:
+    flaky = bool(d.get("flaky", False))
+    seen = d.get("seen")
+    if seen is None:
+        seen = d.get("seen_7d", 0)
+    return model.ErrorInfo(
+        error_summary=d.get("error_summary", "") or "",
+        file=d.get("file"),
+        line=d.get("line"),
+        log_tail=d.get("log_tail", "") or "",
+        flaky=flaky,
+        seen=int(seen) if seen is not None else 0,
+    )
+
+
 def _dict_to_job(d: dict[str, Any]) -> model.Job:
     err_d = d.get("error")
-    err = model.ErrorInfo(**err_d) if isinstance(err_d, dict) else None
+    err = _dict_to_error_info(err_d) if isinstance(err_d, dict) else None
     subs = [_dict_to_job(s) for s in d.get("sub_jobs", []) if isinstance(s, dict)]
     return model.Job(
         name=d.get("name", ""),

@@ -349,6 +349,7 @@ pd [--mock] [--config PATH] [--once] [--interval SEC] [--no-notify] [--gallery] 
 | `pd rules list [--json]` / `pd rules rm <id>` | Inspect or delete saved yellow-light rules | `0`; file corrupted `2` |
 | `pd comments <project> <pr> [--json]` | View PR/MR review comments and threads (`seen` tracking) | `0`; error `2` |
 | `pd reply <project> <pr> <comment_id> <text>` | Reply to PR/MR review comment (leaves review thread unresolved) | `0`; error `2` |
+| `pd report [--days N] [--project P] [--json]` | Aggregate CI runs, failure rates, flaky jobs, and deployments | `0`; invalid args `2` |
 | `pd doctor [--offline] [--json] [--config PATH]` | Inspect system health, configuration, tokens, scopes, and API rate limits | `0` OK; `1` warnings; `2` failed; `3` crash |
 | `pd install-tick [--interval SEC=300]` | Install macOS launchd background schedule (default 300s, logged to `tick.log`) | `0`; `2` non-macOS or error |
 | `pd uninstall-tick` | Remove macOS launchd background schedule | `0`; `2` non-macOS or error |

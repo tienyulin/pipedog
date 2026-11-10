@@ -16,6 +16,7 @@ import deploy_adapters
 import flow
 import flow_exec
 import flowmodel
+import history
 import model
 import notify
 import rules as rules_mod
@@ -457,6 +458,53 @@ class Poller(CdPollerMixin):
                 poll_warnings.extend(proj_warns)
                 all_envs.extend(proj_envs)
                 all_prs.update(proj_prs)
+
+        if not self.mock:
+            try:
+                history.record(pipelines, root=self.state_root, now=now)
+                records = history.load(self.state_root, since=now - 7 * 86400)
+                flaky = history.flaky_jobs(records)
+                summary_records: dict[tuple[str, str], set[tuple[str | None, Any]]] = {}
+                for rec in records:
+                    proj = rec.get("project")
+                    if not proj or not isinstance(proj, str):
+                        continue
+                    pid = rec.get("pipeline_id")
+                    pid_key = str(pid) if pid is not None else None
+                    st = rec.get("status")
+                    failed = rec.get("failed")
+                    if not isinstance(failed, list):
+                        continue
+                    for entry in failed:
+                        if isinstance(entry, dict):
+                            s = entry.get("summary")
+                            if s and isinstance(s, str):
+                                summary_records.setdefault((proj, s), set()).add((pid_key, st))
+
+                for p in pipelines:
+                    p_pid_key = str(p.pipeline_id) if p.pipeline_id is not None else None
+                    p_status = p.status
+                    for job in p.jobs:
+                        for leaf in job.leaves():
+                            if leaf.error is not None:
+                                leaf.error.flaky = (p.project, leaf.name) in flaky
+                                s = leaf.error.error_summary
+                                if s:
+                                    matching = summary_records.get((p.project, s))
+                                    if matching is None and s.strip() != s:
+                                        matching = summary_records.get((p.project, s.strip()))
+                                    if matching:
+                                        leaf.error.seen = sum(
+                                            1
+                                            for (rec_pid, rec_st) in matching
+                                            if rec_pid != p_pid_key or rec_st != p_status
+                                        )
+                                    else:
+                                        leaf.error.seen = 0
+                                else:
+                                    leaf.error.seen = 0
+            except Exception:
+                pass
 
         now = self.clock()
         for host, entry in http.RATE_LIMITS.items():

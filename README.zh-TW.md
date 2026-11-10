@@ -349,6 +349,7 @@ pd [--mock] [--config PATH] [--once] [--interval SEC] [--no-notify] [--gallery] 
 | `pd rules list [--json]` / `pd rules rm <id>` | 查看或刪除已記住的黃燈規則 | `0`；規則檔損毀 `2` |
 | `pd comments <project> <pr> [--json]` | 列出 PR/MR 所有留言與 review thread（標註 `seen`） | `0`；錯誤 `2` |
 | `pd reply <project> <pr> <comment_id> <text>` | 回覆 PR/MR 留言（不自動 resolve thread） | `0`；錯誤 `2` |
+| `pd report [--days N] [--project P] [--json]` | 統計 CI 執行次數、通過率、不穩定 Job 與部署次數 | `0`；參數錯誤 `2` |
 | `pd doctor [--offline] [--json] [--config PATH]` | 檢查 pipedog 運作環境、設定檔、Token、Scope 與 API Rate Limit | `0` 正常；`1` 警告；`2` 失敗；`3` 異常崩潰 |
 | `pd install-tick [--interval SEC=300]` | 安裝 macOS launchd 定期排程（預設 300 秒，記錄於 `tick.log`） | `0`；`2` 非 macOS 或失敗 |
 | `pd uninstall-tick` | 移除 macOS launchd 定期排程 | `0`；`2` 非 macOS 或失敗 |

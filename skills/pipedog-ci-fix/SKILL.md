@@ -19,7 +19,11 @@ Verify that `pd` is available on `PATH`. If `pd` is not found in `PATH`, prompt 
 
 1. Run `pd status --json` (or `pd --once` if the snapshot is missing or stale).
 2. **Mock Mode Guard**: If `"mock": true` in the snapshot, explain the simulated root cause from `failed_jobs`, **but do NOT modify any files under `local_path`, and do NOT run `git commit` or `git push`**.
-3. For each entry in `failed_jobs`:
+3. Check history before touching code: run `pd report --json --days 7` (skip if `pd report` is unavailable or says there is no history).
+   For each entry in `failed_jobs`:
+   - If `"flaky": true` (or the job is listed under the project's `flaky` in the report): **do not change code to "fix" it**. Tell the user it is a known flaky job (failed then passed on the same commit before), suggest a rerun, and stop for that entry.
+   - If `"seen_7d"` is 1 or more, or the `error_summary` appears under the report's `recurring`: say so ("seen N× in 7 days"), and read `git log` for earlier attempts on the same file before writing a fix; do not repeat a fix that already failed.
+   - Never make a job pass by deleting, skipping, or weakening a test or an assertion. If that seems like the only fix, stop and ask the user.
    - Locate the offending file in `local_path` using `file` and `line` (or infer from `error_summary` and `log_tail` when `file` is `null`).
    - Verify the current branch in `local_path` (`git -C <local_path> rev-parse --abbrev-ref HEAD`) matches the failing `branch` and is a feature branch (first tier of `flow.chain`, e.g. `feature/*`).
 

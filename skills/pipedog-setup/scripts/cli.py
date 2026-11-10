@@ -1,4 +1,4 @@
-"""CLI subcommands for pipedog (status, wait, ack, decide, decisions, rules, comments, reply, tick, install-tick, uninstall-tick, envs, doctor, init)."""
+"""CLI subcommands for pipedog (status, wait, ack, decide, decisions, rules, comments, reply, tick, install-tick, uninstall-tick, envs, doctor, init, report)."""
 
 from __future__ import annotations
 
@@ -41,6 +41,25 @@ SUBCOMMANDS: set[str] = {
     "envs",
     "doctor",
     "init",
+    "report",
+}
+
+USAGE: dict[str, str] = {
+    "status": "pd status [--json] [--no-tick] [--mock] [--config PATH]  show CI status (advances flow and deploys)",
+    "wait": "pd wait [--timeout SEC] [--interval SEC] [--mock] [--config PATH]  block until an event needs action",
+    "ack": "pd ack <event_id> [--handled ID...] [--pushed SHA]  acknowledge an event after handling it",
+    "decide": "pd decide <decision_id> <answer> [--remember|-r]  answer a pending decision",
+    "decisions": "pd decisions [--history] [--json] [--limit N] [--project P]  list pending decisions",
+    "rules": "pd rules [list] [--json] | pd rules rm <id>  manage yellow-light rules",
+    "comments": "pd comments <project> <pr> [--json]  list review comments on a PR/MR",
+    "reply": "pd reply <project> <pr> <comment_id> <text...>  reply to a review comment",
+    "tick": "pd tick [--interval SEC] [--mock] [--config PATH]  run one poll (for cron); advances flow and deploys",
+    "install-tick": "pd install-tick [--interval N]  install a macOS launchd job that runs `pd tick` (optional)",
+    "uninstall-tick": "pd uninstall-tick  remove the launchd job",
+    "envs": "pd envs [--json]  show deploy environments",
+    "doctor": "pd doctor [--json] [--offline] [--config PATH]  check config, tokens and connectivity",
+    "init": "pd init [--dry-run] [--force] [--path P] [--flow F] [--name N] [--config C]  add a git repo to the config",
+    "report": "pd report [--days N] [--project NAME] [--json]  CI history summary",
 }
 
 VALID_ANSWERS: dict[str, set[str]] = {
@@ -73,9 +92,24 @@ def _pd_bin_path() -> Path:
     return (Path(__file__).resolve().parent.parent / "bin" / "pd").resolve()
 
 
+def _dict_to_error_info(d: dict[str, Any]) -> model.ErrorInfo:
+    flaky = bool(d.get("flaky", False))
+    seen = d.get("seen")
+    if seen is None:
+        seen = d.get("seen_7d", 0)
+    return model.ErrorInfo(
+        error_summary=d.get("error_summary", "") or "",
+        file=d.get("file"),
+        line=d.get("line"),
+        log_tail=d.get("log_tail", "") or "",
+        flaky=flaky,
+        seen=int(seen) if seen is not None else 0,
+    )
+
+
 def _dict_to_job(d: dict[str, Any]) -> model.Job:
     err_d = d.get("error")
-    err = model.ErrorInfo(**err_d) if isinstance(err_d, dict) else None
+    err = _dict_to_error_info(err_d) if isinstance(err_d, dict) else None
     subs = [_dict_to_job(s) for s in d.get("sub_jobs", []) if isinstance(s, dict)]
     return model.Job(
         name=d.get("name", ""),
@@ -965,6 +999,12 @@ def cmd_init(args: list[str], *, run: Callable[..., Any] | None = None) -> int:
     return init_cmd.cmd_init(args, run=runner)
 
 
+def cmd_report(args: list[str]) -> int:
+    import report_cmd
+
+    return report_cmd.main(args)
+
+
 def main(
     argv: list[str] | None = None,
     *,
@@ -981,6 +1021,10 @@ def main(
 
     cmd = argv[0]
     args = argv[1:]
+    if "-h" in args or "--help" in args:
+        # Help never runs the command: several subcommands have side effects.
+        print("usage: " + USAGE.get(cmd, f"pd {cmd}"))
+        return 0
     if cmd == "status":
         return cmd_status(args)
     if cmd == "wait":
@@ -1010,6 +1054,8 @@ def main(
     if cmd == "init":
         runner = run if run is not None else git_runner
         return cmd_init(args, run=runner)
+    if cmd == "report":
+        return cmd_report(args)
     return 2
 
 

@@ -324,3 +324,7 @@ Exit codes:
 - `1`: One or more warnings detected.
 - `2`: One or more checks failed.
 - `3`: Doctor crashed (unexpected error).
+
+## 8. CI Health & Metrics Report (`pd report`)
+
+Run `pd report [--days N] [--project NAME] [--json]` to aggregate CI runs, failure rates, flaky jobs, recurring errors, and deployments over the specified window (default 7 days).

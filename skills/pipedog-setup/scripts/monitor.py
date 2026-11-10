@@ -411,6 +411,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "subcommands:\n"
             "  init            generate a project entry from current git repo\n"
             "  doctor          check health of pipedog, config, tokens, and rate limits\n"
+            "  report          aggregate CI runs, failure rates, and flaky jobs\n"
             "  status          query pipeline status from active snapshot\n"
             "  wait            block until snapshot changes or event arrives\n"
             "  ack             acknowledge an unhandled event\n"
