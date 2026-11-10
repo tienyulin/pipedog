@@ -212,6 +212,7 @@ cp <canonical copy>/skills/pipedog-setup/config.example.json ~/.config/pipedog/c
 - `flow.lanes`：額外 entry branches（如 `hotfix/*`、`release/*`），直接 merge 至目標 chain branch（如 `main`），並支援自動開啟 back-merge PR（如回合至 `develop`）。
 - `flow.max_fix_rounds`：同一分支連續自動修復次數上限（預設 `3`）。
 - `flow.merge`：各階段 merge 方式（`method`: `"squash"` 或 `"merge"`；`delete_branch`: `true` 或 `false`）。
+- `ci_events`：可選，哪些事件算 CI pipeline。GitHub 填 Actions 事件名（預設：`["push", "pull_request", "merge_group", "workflow_dispatch"]`）；GitLab 填 pipeline source（預設：`push`、`web`、`merge_request_event`、`api`、`trigger`、`pipeline`、`external`、`external_pull_request_event`，排程 pipeline 不算）。
 - `deploy`：可選的持續部署設定區塊。`after_branch` 指定綠燈後觸發部署的分支。
   - `environments`：目標部署環境清單。`adapter` 可選 `"gitlab"`、`"github"` 或 `"command"`。
   - `trigger`：`"auto"`（綠燈自動觸發部署）或 `"ask"`（產生待決定項目等待確認）。
@@ -370,8 +371,9 @@ pipedog 無需常駐背景 daemon。`pd wait` 與 TUI `pd` 在執行時每次輪
 - **Linux（crontab 定期排程）**：
   請手動透過 `crontab -e` 加入：
   ```cron
-  */5 * * * * <pd 路徑> tick >> ~/.local/state/pipedog/tick.log 2>&1
+  */5 * * * * PATH=/usr/local/bin:/usr/bin:/bin <pd 路徑> tick >> ~/.local/state/pipedog/tick.log 2>&1
   ```
+  cron 不會載入 shell profile，`PIPEDOG_*_TOKEN` 等 env var 它看不到：GitHub 請用 `gh auth login`，或把 token 寫進 `config.json`（權限 600）。macOS 上 `pd doctor` 會提醒。
 - **日誌輪替**：`pd tick` 執行時若 `tick.log` 超過 1 MiB，會自動以原子方式寫入並保留最後 256 KiB。
 
 ---

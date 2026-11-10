@@ -6,8 +6,10 @@ import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import config
 import deploy_adapters
@@ -21,6 +23,7 @@ import snapshot
 import store
 from engine_clients import _mock_module, error_pipeline
 from poller_cd import CdPollerMixin
+from providers import http
 
 MAX_FETCH_WORKERS = 8
 UNACKED_EVENT_NOTIFY_SEC = 600.0
@@ -91,6 +94,7 @@ class Poller(CdPollerMixin):
         self.prs: dict[tuple[str, str], flowmodel.PrState] = {}
         self._ref_state: dict[tuple[str, str], flowmodel.TrackedRef] = {}
         self._latest: list[model.Pipeline] = []
+        self._last_proj_data: dict[int, tuple[list[model.Pipeline], list[dict[str, Any]], dict[tuple[str, str], flowmodel.PrState]]] = {}
         self._updated_at: float | None = None
         self._lock = threading.Lock()
         workers = max(1, min(MAX_FETCH_WORKERS, len(projects)))
@@ -360,6 +364,41 @@ class Poller(CdPollerMixin):
                 d.answered_at = self.clock()
                 store.put_decision(d, root=self.state_root)
 
+    def _project_matches_host(self, project: dict, client: Any, host: str) -> bool:
+        host = host.lower()
+        client_base = getattr(client, "base_url", None) or getattr(client, "api", None)
+        if client_base:
+            netloc = urlsplit(str(client_base)).netloc.lower()
+            if netloc == host:
+                return True
+            if netloc in ("api.github.com", "github.com") and host in ("api.github.com", "github.com"):
+                return True
+            if netloc.endswith(host) or host.endswith(netloc):
+                return True
+
+        prov = project.get("provider")
+        if not prov:
+            if project.get("repo"):
+                prov = "github"
+            elif project.get("id") not in (None, ""):
+                prov = "gitlab"
+
+        if prov == "github":
+            gh_host = urlsplit(self.github_api_url).netloc.lower()
+            if host in ("api.github.com", "github.com", gh_host):
+                return True
+        elif prov == "gitlab":
+            gl_host = urlsplit(self.gitlab_url).netloc.lower()
+            if host in ("gitlab.com", gl_host):
+                return True
+
+        if project.get("url"):
+            p_netloc = urlsplit(str(project["url"])).netloc.lower()
+            if p_netloc == host or p_netloc.endswith(host) or host.endswith(p_netloc):
+                return True
+
+        return False
+
     def poll_once(self) -> list[model.Pipeline]:
         now = self.clock()
         loaded_rules, rules_err = rules_mod.load(self.rules_file)
@@ -367,23 +406,72 @@ class Poller(CdPollerMixin):
         if rules_err:
             poll_warnings.append(rules_err)
 
-        futures = [
-            self._pool.submit(
-                self._poll_project, proj, client, forge, loaded_rules, now
-            )
-            for proj, client, forge in zip(self.projects, self.clients, self.forges)
-        ]
+        paused_hosts: dict[str, tuple[int, int, float]] = {}
+        for host, entry in http.RATE_LIMITS.items():
+            if not isinstance(entry, dict):
+                continue
+            rem = entry.get("remaining")
+            lim = entry.get("limit")
+            rst = entry.get("reset")
+            if rem is not None and lim is not None and lim > 0:
+                if rem < 0.05 * lim:
+                    if rst is not None and now < float(rst):
+                        paused_hosts[host] = (rem, lim, float(rst))
+                        time_str = datetime.fromtimestamp(float(rst)).strftime("%H:%M")
+                        warn = f"{host} API budget low ({rem}/{lim}), pausing until {time_str}"
+                        if warn not in poll_warnings:
+                            poll_warnings.append(warn)
+
+        results_by_idx: dict[int, tuple[list[model.Pipeline], list[str], list[dict[str, Any]], dict[tuple[str, str], flowmodel.PrState]]] = {}
+        futures: list[tuple[int, Any]] = []
+
+        for idx, (proj, client, forge) in enumerate(zip(self.projects, self.clients, self.forges)):
+            if any(self._project_matches_host(proj, client, h) for h in paused_hosts):
+                if idx in self._last_proj_data:
+                    p_pipes, p_envs, p_prs = self._last_proj_data[idx]
+                else:
+                    proj_name = str(proj.get("name") or "")
+                    proj_ref = str(proj.get("repo") or proj.get("id") or "")
+                    p_pipes = [p for p in self._latest if p.project == proj_name or (proj_ref and p.project_ref == proj_ref)]
+                    p_envs = []
+                    p_prs = {}
+                results_by_idx[idx] = (p_pipes, [], p_envs, p_prs)
+            else:
+                f = self._pool.submit(
+                    self._poll_project, proj, client, forge, loaded_rules, now
+                )
+                futures.append((idx, f))
+
+        for idx, f in futures:
+            proj_pipes, proj_warns, proj_envs, proj_prs = f.result()
+            self._last_proj_data[idx] = (proj_pipes, proj_envs, proj_prs)
+            results_by_idx[idx] = (proj_pipes, proj_warns, proj_envs, proj_prs)
+
         pipelines: list[model.Pipeline] = []
         all_envs: list[dict[str, Any]] = []
         all_prs: dict[tuple[str, str], flowmodel.PrState] = {}
-        for f in futures:
-            proj_pipes, proj_warns, proj_envs, proj_prs = f.result()
-            pipelines.extend(proj_pipes)
-            poll_warnings.extend(proj_warns)
-            all_envs.extend(proj_envs)
-            all_prs.update(proj_prs)
+        for idx in range(len(self.projects)):
+            if idx in results_by_idx:
+                proj_pipes, proj_warns, proj_envs, proj_prs = results_by_idx[idx]
+                pipelines.extend(proj_pipes)
+                poll_warnings.extend(proj_warns)
+                all_envs.extend(proj_envs)
+                all_prs.update(proj_prs)
 
         now = self.clock()
+        for host, entry in http.RATE_LIMITS.items():
+            if not isinstance(entry, dict):
+                continue
+            rem = entry.get("remaining")
+            lim = entry.get("limit")
+            rst = entry.get("reset")
+            if rem is not None and lim is not None and lim > 0:
+                if rem < 0.05 * lim:
+                    if rst is not None and now < float(rst):
+                        time_str = datetime.fromtimestamp(float(rst)).strftime("%H:%M")
+                        warn = f"{host} API budget low ({rem}/{lim}), pausing until {time_str}"
+                        if warn not in poll_warnings:
+                            poll_warnings.append(warn)
         try:
             self._check_overdue_events(now)
         except Exception:  # noqa: BLE001

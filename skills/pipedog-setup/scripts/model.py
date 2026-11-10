@@ -83,6 +83,7 @@ class Pipeline:
     fetched_at: float | None = None    # epoch seconds when this data was fetched
     head_sha: str | None = None        # commit SHA the pipeline/run was built for
     target: str | None = None          # target branch if tracked ref or PR target
+    note: str | None = None            # hint shown when there is no pipeline, e.g. wrong branch
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

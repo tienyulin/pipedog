@@ -212,6 +212,7 @@ Example `config.json` supporting Git Flow and GitHub Flow:
 - `flow.lanes`: Extra entry branches (e.g. `hotfix/*`, `release/*`) that merge directly into a target chain branch (e.g. `main`) with optional automated back-merge PRs (e.g. into `develop`).
 - `flow.max_fix_rounds`: Maximum consecutive automated fix attempts on a branch (default `3`).
 - `flow.merge`: Merge methods per stage (`method`: `"squash"` or `"merge"`; `"delete_branch"`: `true` or `false`).
+- `ci_events`: Optional list of events that form CI pipelines. GitHub: Actions event names (default: `["push", "pull_request", "merge_group", "workflow_dispatch"]`). GitLab: pipeline sources (default: `push`, `web`, `merge_request_event`, `api`, `trigger`, `pipeline`, `external`, `external_pull_request_event`; scheduled pipelines are left out).
 - `deploy`: Optional continuous deployment block. `after_branch` specifies the branch that triggers deployment progression once green.
   - `environments`: List of target environments. `adapter` can be `"gitlab"`, `"github"`, or `"command"`.
   - `trigger`: `"auto"` (deploy immediately upon trigger) or `"ask"` (generate a pending decision).
@@ -370,8 +371,9 @@ If you want branch pipelines and deployments to advance continuously even when n
 - **Linux (crontab)**:
   Add to crontab via `crontab -e`:
   ```cron
-  */5 * * * * <path to pd> tick >> ~/.local/state/pipedog/tick.log 2>&1
+  */5 * * * * PATH=/usr/local/bin:/usr/bin:/bin <path to pd> tick >> ~/.local/state/pipedog/tick.log 2>&1
   ```
+  Cron does not load your shell profile, so `PIPEDOG_*_TOKEN` env vars are invisible to it: use `gh auth login` (GitHub) or put the token in `config.json` (mode 600). `pd doctor` warns about this on macOS.
 - **Log rotation**: When `tick.log` exceeds 1 MiB, `pd tick` automatically retains the last 256 KiB atomically.
 
 ---

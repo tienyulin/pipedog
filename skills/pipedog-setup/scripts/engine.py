@@ -74,6 +74,7 @@ def _dict_to_pipeline(d: dict[str, Any]) -> model.Pipeline:
         fetch_error=d.get("fetch_error"),
         fetched_at=d.get("fetched_at"),
         head_sha=d.get("head_sha"),
+        note=d.get("note"),
     )
     if "tracked_ref" in d and d["tracked_ref"] is not None:
         p.tracked_ref = d["tracked_ref"]  # type: ignore[attr-defined]

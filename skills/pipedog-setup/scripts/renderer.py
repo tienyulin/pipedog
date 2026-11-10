@@ -780,7 +780,7 @@ def render(
             elif not p.jobs and p.pipeline_id is None:
                 body_parts.append(
                     tui.Line(
-                        f"  {get_icon('pending', caps.fancy)} no pipeline yet",
+                        f"  {get_icon('pending', caps.fancy)} {p.note or 'no pipeline yet'}",
                         style="dim",
                         no_wrap=True,
                         overflow="ellipsis",
@@ -857,8 +857,13 @@ def render(
 
     panel_box = tui.ROUNDED if caps.fancy else tui.SQUARE
 
+    if len(pipelines) <= 3:
+        content = tui.Group(banner_renderable, tui.Line(""), *body_parts)
+    else:
+        content = tui.Group(*body_parts)
+
     return tui.Panel(
-        tui.Group(banner_renderable, tui.Line(""), *body_parts),
+        content,
         title=title,
         subtitle=subtitle,
         box=panel_box,

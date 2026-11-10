@@ -123,7 +123,8 @@ def _open(
     timeout: float,
     data: bytes | None = None,
     method: str | None = None,
-) -> tuple[bytes, Any]:
+    allow_304: bool = False,
+) -> tuple[bytes | None, Any]:
     req = urllib.request.Request(
         url,
         data=data,
@@ -133,19 +134,28 @@ def _open(
     try:
         with _OPENER.open(req, timeout=timeout) as resp:
             _record_rate_limit(url, resp.headers)
+            if allow_304 and (getattr(resp, "status", None) == 304 or getattr(resp, "code", None) == 304):
+                return None, resp.headers
             return resp.read(), resp.headers
     except urllib.error.HTTPError as e:
         _record_rate_limit(url, e.headers)
+        if allow_304 and e.code == 304:
+            return None, e.headers
         phrase = e.reason or _phrase(e.code)
         raise HttpError(_scrub(f"HTTP {e.code} {phrase}".strip(), headers), e.code) from None
     except urllib.error.URLError as e:
         if isinstance(e.reason, (TimeoutError, socket.timeout)):
-            raise HttpError("timeout") from None
+            raise HttpError(_timeout_msg(url, timeout)) from None
         raise HttpError(_scrub(f"URLError: {e.reason}", headers)) from None
     except (TimeoutError, socket.timeout):
-        raise HttpError("timeout") from None
+        raise HttpError(_timeout_msg(url, timeout)) from None
     except (http.client.HTTPException, OSError, ValueError) as e:
         raise HttpError(_scrub(f"{type(e).__name__}: {e}", headers)) from None
+
+
+def _timeout_msg(url: str, timeout: float) -> str:
+    host = urlsplit(url).hostname or "server"
+    return f"timeout: {host} did not answer within {timeout:g}s (retrying next poll)"
 
 
 def _phrase(code: int) -> str:
@@ -162,6 +172,33 @@ def get_json(url: str, headers: dict[str, str], timeout: float = 10) -> Any:
         return json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         raise HttpError("invalid JSON response") from None
+
+
+def get_json_cached(url: str, headers: dict, cache: dict, timeout: float = 10) -> Any:
+    """GET ``url`` with conditional ETag caching, returning decoded JSON."""
+    req_headers = dict(headers)
+    if url in cache:
+        etag, _ = cache[url]
+        if etag:
+            req_headers["If-None-Match"] = etag
+
+    raw, resp_headers = _open(url, req_headers, timeout, allow_304=True)
+    if raw is None:
+        if url in cache:
+            return cache[url][1]
+        return None
+
+    try:
+        body = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HttpError("invalid JSON response") from None
+
+    etag = _header_val(resp_headers, "ETag")
+    if etag:
+        cache[url] = (etag, body)
+        while len(cache) > 512:
+            del cache[next(iter(cache))]
+    return body
 
 
 def get_json_with_headers(

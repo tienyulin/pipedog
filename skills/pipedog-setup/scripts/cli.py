@@ -109,6 +109,7 @@ def _dict_to_pipeline(d: dict[str, Any]) -> model.Pipeline:
         fetch_error=d.get("fetch_error"),
         fetched_at=d.get("fetched_at"),
         head_sha=d.get("head_sha"),
+        note=d.get("note"),
     )
 
 

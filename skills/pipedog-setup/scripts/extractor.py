@@ -32,6 +32,7 @@ _ESC_OTHER = re.compile(r"\x1b[@-Z\\-_]")
 # GitLab collapsible-section markers, e.g. "section_start:1700000000:step_script\r".
 _SECTION = re.compile(r"section_(?:start|end):\d+:[^\s\x1b]*\r?")
 # GitHub Actions per-line timestamp, e.g. "2026-11-08T07:15:00.1234567Z ".
+_GL_STREAM = re.compile(r"^[0-9a-f]{2}[OE]\+? ?")
 _GH_TS = re.compile(r"^\ufeff?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z ?")
 
 
@@ -56,7 +57,11 @@ def clean_log(raw: str) -> list[str]:
             # A bare "\r" returns the cursor to column 0: the last visible segment wins.
             parts = [p for p in line.split("\r") if p.strip()]
             line = parts[-1] if parts else ""
-        line = _GH_TS.sub("", line).rstrip()
+        stripped = _GH_TS.sub("", line)
+        if stripped != line:
+            # GitLab timestamped logs: "<ts> 00O <text>" (stream index + O/E, "+" = continuation).
+            stripped = _GL_STREAM.sub("", stripped)
+        line = stripped.rstrip()
         if had_marker and not line:
             continue
         out.append(line)
@@ -91,6 +96,7 @@ _RUNNER_NOISE = re.compile(
     r"Cleaning up\b"
     r"|ERROR: Job failed\b"
     r"|##\[error\]Process completed with exit code \d+"
+    r"|##\[(?:warning|debug|notice|group|endgroup)\]"
     r"|Post job cleanup\b"
     r"|Uploading artifacts\b"
     r"|Not uploading\b"
@@ -102,6 +108,7 @@ _RUNNER_NOISE = re.compile(
 )
 # Lines matching a keyword but carrying no information (skipped in the keyword tier).
 _LOW_VALUE = re.compile(r"A complete log of this run|For a full report|This is probably not a problem with npm")
+_GH_DIRECTIVE = re.compile(r"^##\[[a-zA-Z0-9_-]+\]\s*")
 
 
 def _is_noise(line: str) -> bool:
@@ -125,10 +132,12 @@ def _normalize_path(path: str, prefixes: Sequence[str]) -> str:
 
 
 def _one_line(text: str) -> str:
-    """Collapse whitespace, drop GitHub's ``##[error]`` directive and cap the length."""
+    """Collapse whitespace, drop GitHub's ``##[...]`` directives and cap the length."""
     text = text.strip()
-    if text.startswith("##[error]"):
-        text = text[len("##[error]"):]
+    m = _GH_DIRECTIVE.match(text)
+    if m:
+        rest = text[m.end():].strip()
+        text = rest if rest else text[m.end():]
     text = " ".join(text.split())
     if len(text) > _SUMMARY_MAX:
         text = text[: _SUMMARY_MAX - 3] + "..."
@@ -144,7 +153,7 @@ _Hit = Tuple[int, str, Optional[str], Optional[int]]
 
 _PYTEST_E = re.compile(r"^E(?: {2,}(.*))?$")
 _PYTEST_LOC = re.compile(r"^(?P<file>[^\s:'\"]+\.py):(?P<line>\d+): ?(?P<rest>.*)$")
-_PYTEST_LINE_STYLE = re.compile(r"^[A-Z][\w.]*(?:Error|Exception|Failed|Failure|Exit)?\b")
+_PYTEST_LINE_STYLE = re.compile(r"^[A-Z][\w.]*(?:Error|Exception|Failed|Failure|Exit)\b")
 
 
 def _tier_pytest(win: list[str], prefixes: Sequence[str]) -> _Hit | None:
@@ -301,7 +310,7 @@ def _tier_diagnostic(win: list[str], prefixes: Sequence[str]) -> _Hit | None:
 
 _KEYWORDS = re.compile(
     r"Error:|ERROR|Exception|\bFAIL(?:ED)?\b|CrashLoopBackOff|ImagePullBackOff|OOMKilled"
-    r"|exit code \d+|npm ERR!|##\[error\]"
+    r"|exit code \d+|npm ERR!|##\[error\]|\bFailed to \w"
 )
 _PYTEST_FAILED = re.compile(r"^FAILED (?P<file>[^\s:]+\.py)::")
 

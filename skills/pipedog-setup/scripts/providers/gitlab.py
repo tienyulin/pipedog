@@ -95,6 +95,22 @@ def _min_job_id(job: model.Job) -> tuple[int, Any]:
     return (2, 0)
 
 
+_LIST_PAGE = 20
+# Pipeline ``source`` values that count as CI; scheduled and security-scan
+# pipelines are left out unless a project lists them in ``ci_events``.
+DEFAULT_CI_SOURCES: frozenset[str] = frozenset(
+    {"push", "web", "merge_request_event", "api", "trigger", "pipeline",
+     "external", "external_pull_request_event"}
+)
+
+
+def _is_ci_source(p: Any, allowed: set[str] | frozenset[str]) -> bool:
+    if not isinstance(p, dict):
+        return False
+    src = p.get("source")
+    return src is None or src in allowed
+
+
 class Client:
     """GitLab client. Instances are reused across polls and keep caches."""
 
@@ -103,6 +119,9 @@ class Client:
         self.api = f"{self.base_url}/api/v4"
         self._token = token or None
         self._headers: dict[str, str] = {"PRIVATE-TOKEN": self._token} if self._token else {}
+        self._etags: dict = {}
+        self._jobs_cache: dict = {}
+        self._default_branch: dict[str, str | None] = {}
         self._traces: dict[Any, model.ErrorInfo] = {}                 # job_id -> ErrorInfo
         self._downstream: dict[tuple[str, Any], list[model.Job]] = {}  # finished downstream jobs
 
@@ -123,7 +142,7 @@ class Client:
             fetched_at=time.time(),
         )
         try:
-            self._fill(pipe, ref, branch, sha)
+            self._fill(pipe, ref, branch, sha, project=project)
         except Exception as e:  # noqa: BLE001 - contract: fetch never raises
             msg = e.message if isinstance(e, http.HttpError) else f"{type(e).__name__}: {e}"
             if self._token:
@@ -140,7 +159,7 @@ class Client:
     # ------------------------------------------------------------------ #
 
     def _get(self, path: str) -> Any:
-        return http.get_json(f"{self.api}{path}", self._headers)
+        return http.get_json_cached(f"{self.api}{path}", self._headers, self._etags)
 
     @staticmethod
     def _pid(project_ref: Any) -> str:
@@ -160,7 +179,27 @@ class Client:
                 break
         return items
 
-    def _fill(self, pipe: model.Pipeline, ref: str, branch: str | None, sha: str | None = None) -> None:
+    def _branch_hint(self, pid: str, branch: str) -> str | None:
+        """When ``branch`` has no pipeline, point at the default branch if it differs."""
+        if pid not in self._default_branch:
+            try:
+                info = self._get(f"/projects/{pid}")
+                self._default_branch[pid] = info.get("default_branch") if isinstance(info, dict) else None
+            except http.HttpError:
+                return None
+        default = self._default_branch[pid]
+        if default and default != branch:
+            return f"no pipeline on '{branch}' (default branch is '{default}')"
+        return None
+
+    def _fill(
+        self,
+        pipe: model.Pipeline,
+        ref: str,
+        branch: str | None,
+        sha: str | None = None,
+        project: dict | None = None,
+    ) -> None:
         if not ref:
             raise http.HttpError("project has no id")
         pid = self._pid(ref)
@@ -170,12 +209,28 @@ class Client:
             params.append(f"ref={quote(branch, safe='')}")
         if sha:
             params.append(f"sha={quote(sha, safe='')}")
-        params.append("per_page=1")
+        params.append(f"per_page={_LIST_PAGE}")
         query = "?" + "&".join(params)
         pipelines = self._get(f"/projects/{pid}/pipelines{query}")
         if not isinstance(pipelines, list):
             raise http.HttpError("unexpected response")
+
+        if project and project.get("ci_events") is not None:
+            allowed = set(project["ci_events"])
+        else:
+            allowed = DEFAULT_CI_SOURCES
+        listed = len(pipelines)
+        pipelines = [p for p in pipelines if _is_ci_source(p, allowed)]
+        if not pipelines and listed >= _LIST_PAGE:
+            # The page was crowded out by scheduled pipelines: ask per CI source instead.
+            for src in sorted(allowed):
+                batch = self._get(f"/projects/{pid}/pipelines{query}&source={quote(src, safe='')}")
+                if isinstance(batch, list):
+                    pipelines.extend(p for p in batch if _is_ci_source(p, allowed))
+            pipelines.sort(key=lambda p: p.get("id") or 0, reverse=True)
         if not pipelines:
+            if branch and not sha:
+                pipe.note = self._branch_hint(pid, branch)
             return  # no pipeline: status None, no jobs, no error
 
         latest = pipelines[0]
@@ -184,12 +239,24 @@ class Client:
         pipe.head_sha = latest.get("sha")
         pipe.status = map_status(latest.get("status"))
 
-        raw_jobs = self._get_paged(
-            f"/projects/{pid}/pipelines/{pipe.pipeline_id}/jobs"
-            f"?per_page={_PER_PAGE}&include_retried=false"
-        )
+        status = latest.get("status")
+        is_finished = status in ("success", "failed", "canceled", "skipped", "manual")
+        cache_key = (pipe.pipeline_id, latest.get("updated_at"))
+        if is_finished and cache_key in self._jobs_cache:
+            raw_jobs, bridges = self._jobs_cache[cache_key]
+        else:
+            raw_jobs = self._get_paged(
+                f"/projects/{pid}/pipelines/{pipe.pipeline_id}/jobs"
+                f"?per_page={_PER_PAGE}&include_retried=false"
+            )
+            bridges = self._bridges(pid, pipe.pipeline_id)
+            if is_finished:
+                self._jobs_cache[cache_key] = (raw_jobs, bridges)
+                while len(self._jobs_cache) > 256:
+                    del self._jobs_cache[next(iter(self._jobs_cache))]
+
         jobs = [self._to_job(j, pid) for j in raw_jobs]
-        jobs.extend(self._bridges(pid, pipe.pipeline_id))
+        jobs.extend(bridges)
         jobs.sort(key=_min_job_id)
         pipe.jobs = grouping.group_jobs(jobs)
         pipe.jobs.sort(key=_min_job_id)
@@ -226,7 +293,10 @@ class Client:
             permanent = e.status in _PERMANENT
             reason = raw.get("failure_reason")
             detail = f"{reason}, " if reason else ""
-            info = model.ErrorInfo(error_summary=f"log unavailable ({detail}{e.message})")
+            if e.status in (401, 403) and not self._token:
+                info = model.ErrorInfo(error_summary=f"log needs a token ({detail}set PIPEDOG_GITLAB_TOKEN)")
+            else:
+                info = model.ErrorInfo(error_summary=f"log unavailable ({detail}{e.message})")
         info.error_summary = (prefix + info.error_summary)[:200]
         if permanent:
             self._traces[job_id] = info

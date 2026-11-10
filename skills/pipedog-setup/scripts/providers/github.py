@@ -17,6 +17,9 @@ _MAX_PAGES = 5
 _PENDING = ("queued", "waiting", "requested", "pending")
 _FAILED = ("failure", "timed_out", "startup_failure")
 _PERMANENT = (401, 403, 404, 410)  # log download will not succeed on retry
+DEFAULT_CI_EVENTS: frozenset[str] = frozenset(
+    {"push", "pull_request", "merge_group", "workflow_dispatch"}
+)
 
 
 def map_status(status: str | None, conclusion: str | None = None) -> model.Status:
@@ -88,6 +91,9 @@ class Client:
         }
         if self._token:
             self._headers["Authorization"] = f"Bearer {self._token}"
+        self._etags: dict = {}
+        self._jobs_cache: dict = {}
+        self._default_branch: dict[str, str | None] = {}
         self._logs: dict[Any, model.ErrorInfo] = {}  # job_id -> ErrorInfo
 
     # ------------------------------------------------------------------ #
@@ -124,7 +130,20 @@ class Client:
     # ------------------------------------------------------------------ #
 
     def _get(self, path: str) -> Any:
-        return http.get_json(f"{self.base_url}{path}", self._headers)
+        return http.get_json_cached(f"{self.base_url}{path}", self._headers, self._etags)
+
+    def _branch_hint(self, repo: str, branch: str) -> str | None:
+        """When ``branch`` has no run, point at the default branch if it differs."""
+        if repo not in self._default_branch:
+            try:
+                info = self._get(f"/repos/{repo}")
+                self._default_branch[repo] = info.get("default_branch") if isinstance(info, dict) else None
+            except http.HttpError:
+                return None
+        default = self._default_branch[repo]
+        if default and default != branch:
+            return f"no workflow run on '{branch}' (default branch is '{default}')"
+        return None
 
     def _fill(
         self,
@@ -149,14 +168,38 @@ class Client:
         if not isinstance(runs, list):
             raise http.HttpError("unexpected response")
         if not runs:
+            if branch and not sha:
+                pipe.note = self._branch_hint(repo, branch)
             return  # no run: status None, no jobs, no error
 
         # Pick the target commit from CI runs only: a deploy/rollback run (e.g. a
         # rerun of an old deployment) can be newest yet point at an older sha.
         deploy_wfs = _deploy_workflows(project or {})
         ci_runs = [r for r in runs if not _is_deploy_workflow(r, deploy_wfs)]
+
+        if project and "ci_events" in project and project["ci_events"] is not None:
+            allowed_events = set(project["ci_events"])
+        else:
+            allowed_events = DEFAULT_CI_EVENTS
+
+        def _allowed(rs: list) -> list:
+            return [
+                r for r in rs
+                if not _is_deploy_workflow(r, deploy_wfs)
+                and ("event" not in r or r.get("event") is None or r.get("event") in allowed_events)
+            ]
+
+        ci_runs = _allowed(ci_runs)
+        if not ci_runs and len(runs) >= 30:
+            # The page was crowded out by schedule/bot runs: ask per CI event instead.
+            for ev in sorted(allowed_events):
+                more = self._get(f"/repos/{repo}/actions/runs{query}&event={quote(ev, safe='')}")
+                batch = more.get("workflow_runs") if isinstance(more, dict) else None
+                if isinstance(batch, list):
+                    ci_runs.extend(_allowed(batch))
+            ci_runs.sort(key=lambda r: (_run_timestamp(r), _run_number(r)), reverse=True)
         if not ci_runs:
-            return  # only deploy runs: treat as no CI run
+            return  # only deploy runs or no CI runs left: treat as no CI run
         target_sha = sha or ci_runs[0].get("head_sha")
         if target_sha is not None:
             non_deploy_runs = [r for r in ci_runs if r.get("head_sha") == target_sha]
@@ -197,18 +240,27 @@ class Client:
         pipe.jobs = []
         for run in kept_runs:
             run_id = run.get("id")
-            raw_jobs: list[dict] = []
-            for page in range(1, _MAX_PAGES + 1):
-                url = f"/repos/{repo}/actions/runs/{run_id}/jobs?per_page={_PER_PAGE}&filter=latest"
-                if page > 1:
-                    url += f"&page={page}"
-                body = self._get(url)
-                batch = body.get("jobs") if isinstance(body, dict) else None
-                if not isinstance(batch, list):
-                    raise http.HttpError("unexpected response")
-                raw_jobs.extend(batch)
-                if len(batch) < _PER_PAGE:
-                    break
+            cache_key = (run_id, run.get("run_attempt"), run.get("updated_at"))
+            is_completed = run.get("status") == "completed"
+            if is_completed and cache_key in self._jobs_cache:
+                raw_jobs = self._jobs_cache[cache_key]
+            else:
+                raw_jobs = []
+                for page in range(1, _MAX_PAGES + 1):
+                    url = f"/repos/{repo}/actions/runs/{run_id}/jobs?per_page={_PER_PAGE}&filter=latest"
+                    if page > 1:
+                        url += f"&page={page}"
+                    body = self._get(url)
+                    batch = body.get("jobs") if isinstance(body, dict) else None
+                    if not isinstance(batch, list):
+                        raise http.HttpError("unexpected response")
+                    raw_jobs.extend(batch)
+                    if len(batch) < _PER_PAGE:
+                        break
+                if is_completed:
+                    self._jobs_cache[cache_key] = raw_jobs
+                    while len(self._jobs_cache) > 256:
+                        del self._jobs_cache[next(iter(self._jobs_cache))]
 
             wf_name = run.get("name")
             jobs = [self._to_job(j, repo, workflow=wf_name) for j in raw_jobs]
@@ -252,7 +304,10 @@ class Client:
                 None,
             )
             what = f"step '{step}' failed" if step else "job failed"
-            info = model.ErrorInfo(error_summary=f"{what} (log unavailable: {e.message})")
+            if e.status in (401, 403) and not self._token:
+                info = model.ErrorInfo(error_summary=f"{what} (log needs a token: set PIPEDOG_GITHUB_TOKEN)")
+            else:
+                info = model.ErrorInfo(error_summary=f"{what} (log unavailable: {e.message})")
         if permanent:
             self._logs[job_id] = info
         return info

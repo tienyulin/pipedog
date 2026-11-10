@@ -45,6 +45,21 @@ class Check:
         return {"name": str(self.name), "level": self.level, "detail": self.detail}
 
 
+
+def _env_only_token_providers(cfg: Any) -> list[str]:
+    """Providers in use whose token comes only from env vars (unseen by launchd/cron)."""
+    if not cfg:
+        return []
+    used = {str(p.get("provider") or "") for p in cfg.get("projects", []) if isinstance(p, dict)}
+    out: list[str] = []
+    if "github" in used and not (cfg.get("github") or {}).get("token"):
+        if (os.environ.get("PIPEDOG_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN")) and not config.github_token(cfg, env={}):
+            out.append("github")
+    if "gitlab" in used and not (cfg.get("gitlab") or {}).get("token"):
+        if os.environ.get("PIPEDOG_GITLAB_TOKEN") or os.environ.get("GITLAB_TOKEN"):
+            out.append("gitlab")
+    return out
+
 def run(
     cfg_path: str | Path | None = None,
     *,
@@ -158,7 +173,16 @@ def run(
     if sys.platform == "darwin":
         plist = cli._plist_path()
         if plist.exists():
-            checks.append(Check("tick_scheduler", "ok", str(plist)))
+            env_only = _env_only_token_providers(cfg)
+            if env_only:
+                checks.append(Check(
+                    "tick_scheduler", "warn",
+                    f"{plist}: background tick runs without your shell env, so the "
+                    f"{'/'.join(env_only)} token from env vars is invisible to it; "
+                    "use `gh auth login` (github) or put the token in config.json (mode 600)",
+                ))
+            else:
+                checks.append(Check("tick_scheduler", "ok", str(plist)))
         else:
             checks.append(Check("tick_scheduler", "ok", "not installed (optional; pd advances when used)"))
 

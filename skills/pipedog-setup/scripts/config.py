@@ -594,6 +594,15 @@ def normalize_project(p: Any, index: int = 0) -> dict[str, Any]:
     else:
         proj["local_path"] = None
     proj.setdefault("branch", "auto")
+    if "ci_events" in proj:
+        ci_events_raw = proj["ci_events"]
+        if (
+            not isinstance(ci_events_raw, list)
+            or not ci_events_raw
+            or not all(isinstance(e, str) and e.strip() for e in ci_events_raw)
+        ):
+            raise ConfigError(f"projects[{index}].ci_events must be a list of strings")
+        proj["ci_events"] = [e.strip() for e in ci_events_raw]
     if proj.get("flow") is not None:
         proj["flow"] = _normalize_flow(proj["flow"], index)
     if proj.get("deploy") is not None:

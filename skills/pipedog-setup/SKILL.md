@@ -101,6 +101,7 @@ For custom setups, multiple projects, or advanced flow options, create or edit `
 Provide API tokens via environment variables (or `gh auth login` for GitHub):
 - GitLab: `export PIPEDOG_GITLAB_TOKEN=...` or `export GITLAB_TOKEN=...` (`api` scope required for flow automation)
 - GitHub: `export PIPEDOG_GITHUB_TOKEN=...`, `export GITHUB_TOKEN=...`, or `gh auth login` (`repo` scope required)
+- `ci_events`: Optional list of events that form CI pipelines. GitHub: Actions event names (default: `["push", "pull_request", "merge_group", "workflow_dispatch"]`). GitLab: pipeline sources (default: `push`, `web`, `merge_request_event`, `api`, `trigger`, `pipeline`, `external`, `external_pull_request_event`; scheduled pipelines are left out).
 
 ### Flow Lanes (optional)
 
@@ -299,8 +300,9 @@ Normally, `pd wait` and the interactive TUI `pd` advance flow and deployments au
 - **Linux (crontab schedule)**:
   - Add to crontab (`crontab -e`):
     ```cron
-    */5 * * * * <pd path> tick >> ~/.local/state/pipedog/tick.log 2>&1
+    */5 * * * * PATH=/usr/local/bin:/usr/bin:/bin <pd path> tick >> ~/.local/state/pipedog/tick.log 2>&1
     ```
+    Cron does not load your shell profile, so `PIPEDOG_*_TOKEN` env vars are invisible to it: use `gh auth login` (GitHub) or put the token in `config.json` (mode 600). `pd doctor` warns about this on macOS.
 - **Log Rotation**:
   - Scheduled runs output to `<state_dir>/tick.log` (e.g. `~/.local/state/pipedog/tick.log`).
   - During `pd tick`, if `tick.log` exceeds 1 MiB, it is automatically rotated to keep the last 256 KiB atomically.
